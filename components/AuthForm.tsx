@@ -12,6 +12,14 @@ import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import FormField from "./FormField";
 
+import { auth, db } from "@/firebase/client"; // <-- make sure this exists
+import {
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+} from "firebase/auth";
+
+import { doc, setDoc, getDoc } from "firebase/firestore";
+
 type FormType = "sign-in" | "sign-up";
 
 const authFormSchema = (type: FormType) => {
@@ -22,9 +30,48 @@ const authFormSchema = (type: FormType) => {
     });
 };
 
+// Real Firestore signUp function
+const signUp = async ({
+                          uid,
+                          name,
+                          email,
+                      }: {
+    uid: string;
+    name: string;
+    email: string;
+}) => {
+    try {
+        const userRef = doc(db, "users", uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+            return {
+                success: false,
+                message: "User already exists. Please sign in.",
+            };
+        }
+
+        await setDoc(userRef, {
+            name,
+            email,
+        });
+
+        return {
+            success: true,
+        };
+    } catch (error: any) {
+        console.error("Error saving user to Firestore:", error.message);
+        return {
+            success: false,
+            message: "Failed to create account. Please try again.",
+        };
+    }
+};
+
 const AuthForm = ({ type }: { type: FormType }) => {
     const router = useRouter();
     const formSchema = authFormSchema(type);
+    const isSignIn = type === "sign-in";
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -35,13 +82,37 @@ const AuthForm = ({ type }: { type: FormType }) => {
         },
     });
 
-    const onSubmit = (data: z.infer<typeof formSchema>) => {
-        console.log("Form Submitted:", data);
-        toast.success(type === "sign-in" ? "Signed in!" : "Account created!");
-        router.push("/");
-    };
+    const onSubmit = async (data: z.infer<typeof formSchema>) => {
+        const { name, email, password } = data;
 
-    const isSignIn = type === "sign-in";
+        try {
+            if (!isSignIn) {
+                // Sign-up flow
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
+                const result = await signUp({
+                    uid: userCredential.user.uid,
+                    name: name!,
+                    email,
+                });
+
+                if (!result.success) {
+                    toast.error(result.message || "Failed to create account.");
+                    return;
+                }
+
+                toast.success("Account created successfully. Please sign in.");
+                router.push("/sign-in");
+            } else {
+                // Sign-in flow
+                await signInWithEmailAndPassword(auth, email, password);
+                toast.success("Signed in!");
+                router.push("/");
+            }
+        } catch (error: any) {
+            toast.error(error.message || "Authentication failed");
+        }
+    };
 
     return (
         <div className="card-border lg:min-w-[566px]">
