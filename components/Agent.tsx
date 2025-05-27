@@ -1,6 +1,15 @@
-import React from "react";
+"use client";
+
 import Image from "next/image";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+
 import { cn } from "@/lib/utils";
+import { vapi } from "@/lib/vapi.sdk";
+// import { interviewer } from "@/constants";
+// import { createFeedback } from "@/lib/actions/general.action";
+// import type { Message } from "@/types/vapi";
+// import type { AgentProps } from "@/types/index";
 
 enum CallStatus {
     INACTIVE = "INACTIVE",
@@ -9,68 +18,207 @@ enum CallStatus {
     FINISHED = "FINISHED",
 }
 
-interface AgentProps {
-    userName: string;
+interface SavedMessage {
+    role: "user" | "system" | "assistant";
+    content: string;
 }
 
-const Agent = ({ userName }: AgentProps) => {
-    const callStatus = CallStatus.FINISHED;
-    const isSpeaking = true;
-    const messages = [
-        "What is your name?",
-        "My name is John Doe, nice to meet you!",
-    ];
-    const lastMessage = messages[messages.length - 1];
+const Agent = ({
+                   userName,
+                   userId,
+                   interviewId,
+                   feedbackId,
+                   type,
+                   questions,
+               }: AgentProps) => {
+    const router = useRouter();
+    const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.INACTIVE);
+    const [messages, setMessages] = useState<SavedMessage[]>([]);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [lastMessage, setLastMessage] = useState<string>("");
+
+    useEffect(() => {
+        const onCallStart = () => {
+            setCallStatus(CallStatus.ACTIVE);
+        };
+
+        const onCallEnd = () => {
+            setCallStatus(CallStatus.FINISHED);
+        };
+
+        const onMessage = (message: Message) => {
+            if (message.type === "transcript" && message.transcriptType === "final") {
+                const newMessage = { role: message.role, content: message.transcript };
+                setMessages((prev) => [...prev, newMessage]);
+            }
+        };
+
+        const onSpeechStart = () => {
+            console.log("speech start");
+            setIsSpeaking(true);
+        };
+
+        const onSpeechEnd = () => {
+            console.log("speech end");
+            setIsSpeaking(false);
+        };
+
+        const onError = (error: Error) => {
+            console.log("Error:", error);
+        };
+
+        vapi.on("call-start", onCallStart);
+        vapi.on("call-end", onCallEnd);
+        vapi.on("message", onMessage);
+        vapi.on("speech-start", onSpeechStart);
+        vapi.on("speech-end", onSpeechEnd);
+        vapi.on("error", onError);
+
+        return () => {
+            vapi.off("call-start", onCallStart);
+            vapi.off("call-end", onCallEnd);
+            vapi.off("message", onMessage);
+            vapi.off("speech-start", onSpeechStart);
+            vapi.off("speech-end", onSpeechEnd);
+            vapi.off("error", onError);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (messages.length > 0) {
+            setLastMessage(messages[messages.length - 1].content);
+        }
+
+        const handleGenerateFeedback = async (messages: SavedMessage[]) => {
+            console.log("handleGenerateFeedback");
+
+            const { success, feedbackId: id } = await createFeedback({
+                interviewId: interviewId!,
+                userId: userId!,
+                transcript: messages,
+                feedbackId,
+            });
+
+            if (success && id) {
+                router.push(`/interview/${interviewId}/feedback`);
+            } else {
+                console.log("Error saving feedback");
+                router.push("/");
+            }
+        };
+
+        if (callStatus === CallStatus.FINISHED) {
+            if (type === "generate") {
+                router.push("/");
+            } else {
+                handleGenerateFeedback(messages);
+            }
+        }
+    }, [messages, callStatus, feedbackId, interviewId, router, type, userId]);
+
+    const handleCall = async () => {
+        setCallStatus(CallStatus.CONNECTING);
+
+        if (type === "generate") {
+            await vapi.start(`${process.env.NEXT_PUBLIC_BASE_URL}api/vapi/generate`, {
+                variableValues: {
+                    username: userName,
+                    userid: userId,
+                },
+            });
+        } else {
+            let formattedQuestions = "";
+            if (questions) {
+                formattedQuestions = questions
+                    .map((question) => `- ${question}`)
+                    .join("\n");
+            }
+
+            await vapi.start(`${process.env.NEXT_PUBLIC_BASE_URL}/api/interviewer`, {
+                variableValues: { questions: formattedQuestions },
+            });
+
+
+        }
+    };
+
+    const handleDisconnect = () => {
+        setCallStatus(CallStatus.FINISHED);
+        vapi.stop();
+    };
 
     return (
-        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-4">
-            {/* Header */}
-            <div className="text-center mb-8">
-                <h1 className="text-3xl font-bold flex items-center justify-center gap-2">
-                    <Image src="/logo.svg" alt="PrepWise" width={30} height={30} />
-                    <span className="bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-                        PrepWise
-                    </span>
-                </h1>
-                <p className="text-lg mt-2">Interview Generation</p>
-            </div>
-
-            {/* Cards */}
-            <div className="flex gap-8 flex-wrap justify-center items-center mb-6">
-                {/* AI Interviewer */}
-                <div className="w-[240px] h-[280px] bg-gradient-to-br from-[#1a1a2e] to-[#16213e] rounded-xl shadow-xl flex flex-col items-center justify-center p-6 text-center">
-                    <Image src="/ai-avatar.png" alt="AI" width={80} height={80} className="mb-4" />
-                    <h3 className="text-lg font-semibold">AI Interviewer</h3>
-                    {isSpeaking && <span className="mt-2 animate-ping w-3 h-3 bg-green-500 rounded-full" />}
+        <>
+            <div className="call-view">
+                {/* AI Interviewer Card */}
+                <div className="card-interviewer">
+                    <div className="avatar">
+                        <Image
+                            src="/ai-avatar.png"
+                            alt="profile-image"
+                            width={65}
+                            height={54}
+                            className="object-cover"
+                        />
+                        {isSpeaking && <span className="animate-speak" />}
+                    </div>
+                    <h3>AI Interviewer</h3>
                 </div>
 
-                {/* User */}
-                <div className="w-[240px] h-[280px] bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-xl flex flex-col items-center justify-center p-6 text-center">
-                    <Image src="/user-avatar.png" alt="User" width={80} height={80} className="rounded-full mb-4" />
-                    <h3 className="text-lg font-semibold">{userName || "You"}</h3>
+                {/* User Profile Card */}
+                <div className="card-border">
+                    <div className="card-content">
+                        <Image
+                            src="/user-avatar.png"
+                            alt="profile-image"
+                            width={539}
+                            height={539}
+                            className="rounded-full object-cover size-[120px]"
+                        />
+                        <h3>{userName}</h3>
+                    </div>
                 </div>
             </div>
 
-            {/* Transcript */}
-            {lastMessage && (
-                <div className="bg-[#1f1f1f] px-6 py-3 rounded-full shadow-inner mb-6 text-sm text-center max-w-md">
-                    {lastMessage}
+            {messages.length > 0 && (
+                <div className="transcript-border">
+                    <div className="transcript">
+                        <p
+                            key={lastMessage}
+                            className={cn(
+                                "transition-opacity duration-500 opacity-0",
+                                "animate-fadeIn opacity-100"
+                            )}
+                        >
+                            {lastMessage}
+                        </p>
+                    </div>
                 </div>
             )}
 
-            {/* Call Button */}
-            <div>
-                {callStatus !== CallStatus.ACTIVE ? (
-                    <button className="bg-green-500 hover:bg-green-600 text-white font-medium px-6 py-2 rounded-full shadow-lg transition-all">
-                        {callStatus === CallStatus.INACTIVE || callStatus === CallStatus.FINISHED ? "Call" : "..."}
+            <div className="w-full flex justify-center">
+                {callStatus !== "ACTIVE" ? (
+                    <button className="relative btn-call" onClick={() => handleCall()}>
+            <span
+                className={cn(
+                    "absolute animate-ping rounded-full opacity-75",
+                    callStatus !== "CONNECTING" && "hidden"
+                )}
+            />
+
+                        <span className="relative">
+              {callStatus === "INACTIVE" || callStatus === "FINISHED"
+                  ? "Call"
+                  : ". . ."}
+            </span>
                     </button>
                 ) : (
-                    <button className="bg-red-500 hover:bg-red-600 text-white font-medium px-6 py-2 rounded-full shadow-lg transition-all">
+                    <button className="btn-disconnect" onClick={() => handleDisconnect()}>
                         End
                     </button>
                 )}
             </div>
-        </div>
+        </>
     );
 };
 

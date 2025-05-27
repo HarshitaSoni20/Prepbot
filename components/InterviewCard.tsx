@@ -81,7 +81,7 @@ const InterviewCard = ({
                         href={
                             feedback
                                 ? `/interview/${interviewId}/feedback`
-                                : `/interview/${interviewId}`
+                                : `/ai_mock_interviews/app/(root)/interview/${interviewId}`
                         }
                     >
                         {feedback ? "Check Feedback" : "View Interview"}
