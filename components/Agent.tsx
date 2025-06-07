@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 import { vapi } from "@/lib/vapi.sdk";
+import { generator, interviewer } from "@/constants";
 // import { interviewer } from "@/constants";
 // import { createFeedback } from "@/lib/actions/general.action";
 // import type { Message } from "@/types/vapi";
@@ -120,12 +121,18 @@ const Agent = ({
         setCallStatus(CallStatus.CONNECTING);
 
         if (type === "generate") {
-            await vapi.start(`${process.env.NEXT_PUBLIC_BASE_URL}api/vapi/generate`, {
-                variableValues: {
-                    username: userName,
-                    userid: userId,
-                },
-            });
+            await vapi.start(
+                undefined,
+                undefined,
+                undefined,
+                process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!,
+                {
+                    variableValues: {
+                        username: userName,
+                        userid: userId,
+                    },
+                }
+            );
         } else {
             let formattedQuestions = "";
             if (questions) {
@@ -134,14 +141,13 @@ const Agent = ({
                     .join("\n");
             }
 
-            await vapi.start(`${process.env.NEXT_PUBLIC_BASE_URL}/api/interviewer`, {
-                variableValues: { questions: formattedQuestions },
+            await vapi.start(interviewer, {
+                variableValues: {
+                    questions: formattedQuestions,
+                },
             });
-
-
         }
     };
-
     const handleDisconnect = () => {
         setCallStatus(CallStatus.FINISHED);
         vapi.stop();
