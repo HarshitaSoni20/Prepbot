@@ -4,7 +4,7 @@ import { auth, db } from "@/firebase/admin";
 import { cookies } from "next/headers";
 
 // Session duration (1 week)
-const SESSION_DURATION = 60 * 60 * 24 * 7;
+const ONE_WEEK = 60 * 60 * 24 * 7;
 
 // Set session cookie
 export async function setSessionCookie(idToken: string) {
@@ -12,12 +12,12 @@ export async function setSessionCookie(idToken: string) {
 
     // Create session cookie
     const sessionCookie = await auth.createSessionCookie(idToken, {
-        expiresIn: SESSION_DURATION * 1000, // milliseconds
+        expiresIn:ONE_WEEK * 1000, // milliseconds
     });
 
     // Set cookie in the browser
     cookieStore.set("session", sessionCookie, {
-        maxAge: SESSION_DURATION,
+        maxAge: ONE_WEEK* 1000,
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         path: "/",
@@ -79,8 +79,8 @@ export async function signIn(params: SignInParams) {
             };
 
         await setSessionCookie(idToken);
-    } catch (error: any) {
-        console.log("");
+    } catch (e) {
+        console.log(e);
 
         return {
             success: false,
